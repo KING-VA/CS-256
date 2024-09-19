@@ -1,0 +1,1 @@
+FORKING_INSTRUCTIONS = ['jmp', 'ret', 'br']

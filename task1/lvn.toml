@@ -1,0 +1,46 @@
+extract = 'total_dyn_inst: (\d+)'
+benchmarks = '../examples/test/lvn/*.bril'
+
+[runs.baseline]
+pipeline = [
+    "bril2json",
+    "brili -p {args}",
+]
+
+[runs.dce_local]
+pipeline = [
+    "bril2json",
+    "python dce.py",
+    "brili -p {args}",
+]
+
+[runs.dce_global]
+pipeline = [
+    "bril2json",
+    "python dce.py --global",
+    "brili -p {args}",
+]
+
+[runs.dce_full]
+pipeline = [
+    "bril2json",
+    "python dce.py --global",
+    "python dce.py",
+    "brili -p {args}",
+]
+
+[runs.lvn]
+pipeline = [
+  "bril2json",
+  "python lvn.py",
+  "brili -p {args}",
+]
+
+[runs.lvn_dce_full]
+pipeline = [
+  "bril2json",
+  "python lvn.py",
+  "python dce.py --global",
+  "python dce.py",
+  "brili -p {args}",
+]
