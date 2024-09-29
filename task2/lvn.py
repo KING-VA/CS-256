@@ -1,7 +1,7 @@
 import sys
 import json
-from basic_blocks import create_blocks
-from bril_constants import FORKING_INSTRUCTIONS, COMMUTATIVE_OPERATIONS, SPECIAL_OPERATIONS
+from basic_blocks import BasicBlock
+from bril_constants import TERMINATING_INSTRUCTIONS, COMMUTATIVE_OPERATIONS, SPECIAL_OPERATIONS
 
 class LocalValueNumbering:
     """Class to perform Local Value Numbering."""
@@ -113,7 +113,7 @@ class LocalValueNumbering:
 
             instr = self.compute(instr)
 
-            if 'op' not in instr or instr['op'] == 'nop' or 'labels' in instr or instr['op'] in FORKING_INSTRUCTIONS or instr['op'] in SPECIAL_OPERATIONS:
+            if 'op' not in instr or instr['op'] == 'nop' or 'labels' in instr or instr['op'] in TERMINATING_INSTRUCTIONS or instr['op'] in SPECIAL_OPERATIONS:
                 new_block.append(instr)
                 continue
 
@@ -141,7 +141,8 @@ class LocalValueNumbering:
                 if entry['value_tuple'][0] != 'const':
                     instr.update({'op': 'id', 'args': [entry['name']]})
                 else:
-                    instr.update({'op': 'const', 'value': entry['value_tuple'][1]})
+                    pass
+                    # instr.update({'op': 'const', 'value': entry['value_tuple'][1]}) # Some conversion issue from bools and ints
             elif instr['op'] == "id":
                 num = value_tuple[1]
                 if num in self.table:
@@ -169,12 +170,35 @@ class LocalValueNumbering:
             new_block.append(instr)
         
         return new_block
+    
+    @staticmethod
+    def sort_set(set):
+        """Sort the set of instructions to have constants at the end."""
+        out_list = []
+        for instr in set:
+            if instr[1] == "const":
+                out_list.insert(-1, instr)
+            else:
+                out_list.append(instr)
+        return out_list
+    
+    def pass_block(self, block, inputs):
+        if inputs:
+            inputs = self.sort_set(inputs)
+            for value_tuple in inputs:
+                if value_tuple[1] == "const":
+                    created_instr = {'op': value_tuple[0], 'dest': value_tuple[1], 'value': value_tuple[2], 'temp': True}
+                else:
+                    created_instr = {'op': value_tuple[0], 'dest': value_tuple[1], 'args': list(value_tuple[2:]), 'temp': True}
+                block.insert(0, created_instr)
+        block = self.process_block(block)
+        return [instr for instr in block if 'temp' not in instr]
 
     def run(self, program):
         """Process the entire program."""
         for func in program['functions']:
             new_blocks = []
-            for block in create_blocks(func['instrs']):
+            for block in BasicBlock.create_blocks_from_function(func['instrs']):
                 new_blocks += self.process_block(block)
             func['instrs'] = new_blocks
         return program

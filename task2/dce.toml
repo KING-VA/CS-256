@@ -1,0 +1,30 @@
+extract = 'total_dyn_inst: (\d+)'
+benchmarks = '../examples/test/tdce/*.bril'
+
+[runs.baseline]
+pipeline = [
+    "bril2json",
+    "brili -p {args}",
+]
+
+[runs.lvn_pass]
+pipeline = [
+    "bril2json",
+    "python pass_processor.py --local_value_numbering",
+    "brili -p {args}",
+]
+
+[runs.liveness]
+pipeline = [
+    "bril2json",
+    "python pass_processor.py --liveness",
+    "brili -p {args}",
+]
+
+[runs.lvn_liveness]
+pipeline = [
+    "bril2json",
+    "python pass_processor.py --local_value_numbering",
+    "python pass_processor.py --liveness",
+    "brili -p {args}",
+]
