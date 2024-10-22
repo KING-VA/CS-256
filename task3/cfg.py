@@ -1,9 +1,16 @@
 import json
 import sys
 from typing_extensions import Self, Dict
+import copy
 import graphviz
 
 from basic_blocks import BasicBlock
+
+class DominanceTree(object):
+    def __init__(self, name):
+        self.name = name
+        self.pred = []
+        self.succ = []
 
 class CFG(object):
     """
@@ -15,6 +22,9 @@ class CFG(object):
     def __init__(self, basic_blocks, reverse=False):
         self.reverse = reverse
         self.cfg = CFG.build_cfg(basic_blocks, reverse)
+        self.dominators = self.compute_dominators()
+        self.dominance_frontiers = self.compute_dominance_frontiers()
+        self.dominance_tree = self.build_dominance_tree()
     
     @staticmethod
     def build_cfg(basic_blocks, reverse) -> Dict[str, BasicBlock]:
@@ -63,6 +73,59 @@ class CFG(object):
                     add_to_successor(block, next_block_label)
                     add_to_predecessor(cfg[next_block_label], label)
         return cfg
+    
+    def compute_dominators(self) -> Dict[str, set]:
+        dominators = dict()
+        for label in self.cfg:
+            dominators[label] = set()
+        dominators[CFG.DEFAULT_START_LABEL].add(CFG.DEFAULT_START_LABEL)
+        changed = True
+        while changed:
+            changed = False
+            for label in self.cfg:
+                if label == CFG.DEFAULT_START_LABEL:
+                    continue
+                new_dominators = set()
+                for pred in self.cfg[label].pred:
+                    if len(new_dominators) == 0:
+                        new_dominators = dominators[pred]
+                    else:
+                        new_dominators = new_dominators.intersection(dominators[pred])
+                new_dominators.add(label)
+                if new_dominators != dominators[label]:
+                    changed = True
+                    dominators[label] = new_dominators
+        return dominators
+    
+    def compute_dominance_frontiers(self) -> Dict[str, set]:
+        dominance_frontiers = dict()
+        for label in self.cfg:
+            dominance_frontiers[label] = set()
+            dominated_blocks = {vertex for vertex, doms in self.dominators.items() if label in doms}
+            for vertex in dominated_blocks:
+                for succ in self.cfg[vertex].succ:
+                    if succ not in dominated_blocks or label == succ:
+                        dominance_frontiers[label].add(succ)
+        return dominance_frontiers
+    
+    def build_dominance_tree(self) -> Dict[str, set]:
+        dominance_tree = dict()
+        for label in self.cfg:
+            dominators = copy.deepcopy(self.dominators[label])
+            dominators.remove(label)
+            immediate_dominator = set()
+            for dom in dominators:
+                dom_set = {vertex for vertex, doms in self.dominators.items() if dom in doms}
+                if all(dom2 == dom or dom2 not in dom_set for dom2 in dominators):
+                    immediate_dominator.add(dom)
+            for node in immediate_dominator:
+                if label not in dominance_tree:
+                    dominance_tree[label] = DominanceTree(label)
+                if node not in dominance_tree:
+                    dominance_tree[node] = DominanceTree(node)
+                dominance_tree[node].succ.append(label)
+                dominance_tree[label].pred.append(node)
+        return dominance_tree                 
 
     def get_cfg_instruction_list(self, debug=False) -> list:
         instrs = list()
@@ -75,6 +138,15 @@ class CFG(object):
     def plot_cfg(self, start_label):
         dot = self.generate_graphviz(start_label)
         dot.render('cfg', format='png', cleanup=True)
+
+    def plot_dominance_tree(self):
+        dot = graphviz.Digraph()
+        for vertex in self.dominance_tree:
+            dot.node(vertex, vertex=vertex)
+        for vertex, tree in self.dominance_tree.items():
+            for succ in tree.succ:
+                dot.edge(vertex, succ)
+        dot.render('dominance_tree', format='png', cleanup=True)
 
     def generate_graphviz(self, start_label) -> graphviz.Digraph:
         dot = graphviz.Digraph()
