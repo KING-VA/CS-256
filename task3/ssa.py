@@ -1,8 +1,7 @@
 import copy
 from cfg import CFG
 
-class SSA(object):
-    
+class SSA(object):  
     @staticmethod
     def check_ssa(bril) -> bool:
         for func in bril['functions']:

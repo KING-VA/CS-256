@@ -25,6 +25,15 @@ class CFG(object):
         self.dominators = self.compute_dominators()
         self.dominance_frontiers = self.compute_dominance_frontiers()
         self.dominance_tree = self.build_dominance_tree()
+        self.back_edges = self.compute_back_edges()
+
+    @property
+    def edges(self):
+        edges = set()
+        for label, block in self.cfg.items():
+            for succ in block.succ:
+                edges.add((label, succ))
+        return edges
     
     @staticmethod
     def build_cfg(basic_blocks, reverse) -> Dict[str, BasicBlock]:
@@ -85,12 +94,8 @@ class CFG(object):
             for label in self.cfg:
                 if label == CFG.DEFAULT_START_LABEL:
                     continue
-                new_dominators = set()
-                for pred in self.cfg[label].pred:
-                    if len(new_dominators) == 0:
-                        new_dominators = dominators[pred]
-                    else:
-                        new_dominators = new_dominators.intersection(dominators[pred])
+                predecessor_dom = [dominators[pred] for pred in self.cfg[label].pred if pred in dominators]
+                new_dominators = set.intersection(*predecessor_dom) if predecessor_dom else set()
                 new_dominators.add(label)
                 if new_dominators != dominators[label]:
                     changed = True
@@ -125,7 +130,15 @@ class CFG(object):
                     dominance_tree[node] = DominanceTree(node)
                 dominance_tree[node].succ.append(label)
                 dominance_tree[label].pred.append(node)
-        return dominance_tree                 
+        return dominance_tree
+    
+    def compute_back_edges(self) -> set:
+        backedges = set()
+        for node, doms in self.dominators.items():
+            for dom in doms:
+                if (node, dom) in self.edges:
+                    backedges.add((node, dom))
+        return backedges
 
     def get_cfg_instruction_list(self, debug=False) -> list:
         instrs = list()
