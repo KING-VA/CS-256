@@ -137,11 +137,11 @@ def licm(function, debug=False) -> list:
                 og_idx += 1
                 if debug:
                     print(f"Moved instruction {popped_instruction} from block {block_name} to preheader blocks {preheader_blocks}")
-    cfg_post_ssa = SSA.ssa_to_cfg(cfg_copy)
-    instruction_list = CFG.instructions_from_cfg(cfg_post_ssa, debug=debug)
+    SSA.ssa_to_cfg(cfg_copy)
+    instruction_list = CFG.instructions_from_cfg(cfg_copy, debug=debug)
     if debug:
         print("CFG Post SSA")
-        print(cfg_post_ssa)
+        print(cfg_copy)
         print("Instruction List")
         print(instruction_list)
     return instruction_list
