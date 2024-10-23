@@ -238,8 +238,11 @@ class CFG(object):
         return dot
 
     @staticmethod
-    def create_cfg_from_function(instructions, reverse=False) -> Self:
+    def create_cfg_from_function(instructions, reverse=False, debug=False) -> Self:
         blocks = BasicBlock.create_blocks_from_function(instructions)
+        if debug:
+            for block in blocks:
+                print(block)
         return CFG(blocks, reverse=reverse)
 
 def main():

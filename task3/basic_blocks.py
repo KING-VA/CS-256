@@ -62,6 +62,18 @@ class BasicBlock(object):
         if cur_block:
             yield cur_block
 
+    def __repr__(self):
+        instr_str = str(self.instructions)
+        pred_str = str([str(pred) for pred in self.pred])
+        succ_str = str([str(succ) for succ in self.succ])
+        return f""" 
+                    Instructions: {instr_str}
+        
+                    Predecessors: {pred_str}
+                    Successors: {succ_str}
+
+"""
+
 def main():
     prog = json.load(sys.stdin)
     global_blocks = []

@@ -12,13 +12,17 @@ def variable_use_def_blocks(cfg) -> tuple[dict, dict]:
     use_blocks = dict()
     def_blocks = dict()
 
-    for block_name, block in enumerate(cfg.items()):
+    for block_name, block in cfg.items():
         for instr_idx, instr in enumerate(block.instructions):
             if 'args' in instr:
                 for arg in instr['args']:
+                    if arg not in use_blocks:
+                        use_blocks[arg] = set()
                     use_blocks[arg].add((block_name, instr_idx))
             if 'dest' in instr:
-                def_blocks[instr['dest']].add((block_name, instr_idx))
+                if instr['dest'] not in def_blocks:
+                    def_blocks[instr['dest']] = set()
+                def_blocks[str(instr['dest'])].add((block_name, instr_idx))
     return use_blocks, def_blocks
 
 def instruction_can_error(instr) -> bool:
@@ -36,16 +40,32 @@ def instruction_is_terminating(instr) -> bool:
     return False
 
 def licm(function, debug=False) -> list:
-    cfg_class = CFG.create_cfg_from_function(function)
-    SSA.cfg_to_ssa(cfg_class.cfg)
-    if not cfg_class.is_reducible():
+    cfg_class = CFG.create_cfg_from_function(function['instrs'], debug=debug)
+    if debug:
+        cfg_class.plot_cfg(CFG.DEFAULT_START_LABEL)
+        cfg_class.plot_dominance_tree()
+        print("CFG Backedges")
+        print(cfg_class.back_edges)
+        print("CFG Reducible")
+        print(cfg_class.reducible)
+    SSA.cfg_to_ssa(cfg_class)
+    if not cfg_class.reducible:
         return function
     use_block, def_block = variable_use_def_blocks(cfg_class.cfg)
     cfg_copy = copy.deepcopy(cfg_class.cfg)
+    if debug:
+        print("Use Blocks")
+        print(use_block)
+        print("Def Blocks")
+        print(def_block)
+        print("CFG Copy") 
+        print(cfg_copy)
 
     for backedge in cfg_class.back_edges:
         tail, header = backedge
         if not cfg_class.reachable(CFG.DEFAULT_START_LABEL, tail):
+            if debug:
+                print(f"Backedge {backedge} is not reachable from start label")
             continue
         preheader_blocks = set(
             [label for label, block in cfg_copy.cfg.items() if header in block.pred]
@@ -68,7 +88,9 @@ def licm(function, debug=False) -> list:
             if new_loop_invariant == loop_invariant:
                 break
             loop_invariant = new_loop_invariant
-        
+        if debug:
+            print("Loop Invariant Instructions")
+            print(loop_invariant)
         for block_name in loop_info['nodes']:
             block = cfg_copy[block_name]
             i = 0
@@ -111,10 +133,17 @@ def licm(function, debug=False) -> list:
                         preheader_block.instructions.append(instruction)
                     else:
                         preheader_block.instructions.insert(-1, instruction)
-                block.instructions.pop(i)
+                popped_instruction = block.instructions.pop(i)
                 og_idx += 1
+                if debug:
+                    print(f"Moved instruction {popped_instruction} from block {block_name} to preheader blocks {preheader_blocks}")
     cfg_post_ssa = SSA.ssa_to_cfg(cfg_copy)
     instruction_list = CFG.instructions_from_cfg(cfg_post_ssa, debug=debug)
+    if debug:
+        print("CFG Post SSA")
+        print(cfg_post_ssa)
+        print("Instruction List")
+        print(instruction_list)
     return instruction_list
 
 @click.command()

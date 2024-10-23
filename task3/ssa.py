@@ -16,8 +16,6 @@ class SSA(object):
     @staticmethod
     def ssa_to_cfg(cfg):
         for _, block in cfg.items():
-            new_instructions = []
-
             for instr in block.instructions:
                 if instr.get("op") == "phi":
                     dest = instr["dest"]
@@ -28,10 +26,10 @@ class SSA(object):
                         if var != 'undef':
                             copy_instr = {"op": "id", "type": typ, "args": [var], "dest": dest}
                             cfg[label].instructions.insert(-1, copy_instr)
-                else:
-                    new_instructions.append(instr)
 
-            block.instructions = copy.deepcopy(new_instructions)
+            block.instructions = [
+                instr for instr in copy.deepcopy(block.instructions) if instr.get("op") != "phi"
+            ]
 
     @staticmethod
     def cfg_to_ssa(cfg: CFG):
@@ -75,11 +73,12 @@ class SSA(object):
         phi_node_info = {'dest': '', 'labels': [], 'args': []}
         mapping_block_to_phi = {block: {} for block in cfg.cfg.keys() if block in phi_blocks.keys()}
 
-        for block in mapping_block_to_phi.keys():
-            for variable in phi_blocks[block]:
-                mapping_block_to_phi[block][variable] = copy.deepcopy(phi_node_info)
+        for block_name_map in mapping_block_to_phi.keys():
+            for variable in phi_blocks[block_name_map]:
+                mapping_block_to_phi[block_name_map][variable] = copy.deepcopy(phi_node_info)
 
         def rename_helper(stack, block_name):
+            block = cfg.cfg[block_name]
             saved_stack = copy.deepcopy(stack)
             if block_name in phi_blocks:
                 for variables in phi_blocks[block_name]:
