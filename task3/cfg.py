@@ -16,8 +16,8 @@ class CFG(object):
     """
     Create a control flow graph from a list of basic blocks
     """
-    DEFAULT_START_LABEL = "start"
-    DEFAULT_END_LABEL = "end"
+    DEFAULT_START_LABEL = "start_cfg"
+    DEFAULT_END_LABEL = "end_cfg"
 
     def __init__(self, basic_blocks, reverse=False):
         self.reverse = reverse
@@ -26,6 +26,7 @@ class CFG(object):
         self.dominance_frontiers = self.compute_dominance_frontiers()
         self.dominance_tree = self.build_dominance_tree()
         self.back_edges = self.compute_back_edges()
+        self.reducible = self.is_reducible()
 
     @property
     def edges(self):
@@ -139,6 +140,61 @@ class CFG(object):
                 if (node, dom) in self.edges:
                     backedges.add((node, dom))
         return backedges
+    
+    def is_reducible(self) -> bool:
+        cfg_edges = copy.deepcopy(self.edges)
+
+        for tail, header in self.back_edges:
+            cfg_edges.remove((tail, header))
+        
+        visited = set()
+        stack = set()
+
+        def is_cyclic(node) -> bool:
+            visited.add(node)
+            stack.add(node)
+            for source, dest in cfg_edges:
+                if source == node:
+                    if dest not in visited:
+                        if is_cyclic(dest):
+                            return True
+                    elif dest in stack:
+                        return True
+            stack.remove(node)
+            return False
+        
+        return not is_cyclic(CFG.DEFAULT_START_LABEL)
+    
+    def get_loop_information(self, backedge) -> dict:
+        tail, header = backedge
+        cfg_edges = copy.deepcopy(self.edges)
+        for source, dest in self.back_edges:
+            if dest == header:
+                cfg_edges.remove((source, dest))
+            if source == header:
+                cfg_edges.remove((source, dest))
+
+        nodes = set()
+        new_nodes = {tail}
+        while nodes != new_nodes:
+            nodes = copy.deepcopy(new_nodes)
+            for node in nodes:
+                new_nodes.update({source for source, dest in cfg_edges if dest == node})
+        nodes.add(header)
+        return {'backedge' : backedge, 'header': header, 'nodes' : nodes}
+
+    def reachable(self, source, dest) -> bool:
+        visited = set()
+        stack = [source]
+        while stack:
+            node = stack.pop()
+            if node == dest:
+                return True
+            visited.add(node)
+            for succ in self.cfg[node].succ:
+                if succ not in visited:
+                    stack.append(succ)
+        return False
 
     def get_cfg_instruction_list(self, debug=False) -> list:
         instrs = list()
