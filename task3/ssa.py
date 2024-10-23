@@ -18,7 +18,7 @@ class SSA(object):
         for _, block in cfg.items():
             new_instructions = []
 
-            for instr in block.instrs:
+            for instr in block.instructions:
                 if instr.get("op") == "phi":
                     dest = instr["dest"]
                     typ = instr["type"]
@@ -27,11 +27,11 @@ class SSA(object):
                         var = instr["args"][i]
                         if var != 'undef':
                             copy_instr = {"op": "id", "type": typ, "args": [var], "dest": dest}
-                            cfg[label].instrs.insert(-1, copy_instr)
+                            cfg[label].instructions.insert(-1, copy_instr)
                 else:
                     new_instructions.append(instr)
 
-            block.instrs = copy.deepcopy(new_instructions)
+            block.instructions = copy.deepcopy(new_instructions)
 
     @staticmethod
     def cfg_to_ssa(cfg: CFG):
@@ -47,7 +47,7 @@ class SSA(object):
         defs = dict()
         types = dict()
         for label, block in cfg.cfg.items():
-            for instr in block.instrs:
+            for instr in block.instructions:
                 if 'dest' in instr:
                     variable = instr['dest']
                     if variable not in defs:
@@ -86,7 +86,7 @@ class SSA(object):
                     new_dest = f"{variables}.{len(stack[variables])}"
                     stack[variables].append(new_dest)
                     mapping_block_to_phi[block_name][variables]["dest"] = new_dest
-            for instruction in block.instrs:
+            for instruction in block.instructions:
                 if 'args' in instruction:
                     instruction["args"] = [stack[arg][-1] if arg in stack else arg for arg in instruction["args"]]
                 if 'dest' in instruction:
@@ -122,4 +122,4 @@ class SSA(object):
                     "labels": phi_node["labels"],
                     "args": phi_node["args"]
                 }
-                cfg.cfg[block_name].instrs.insert(0, phi_node)
+                cfg.cfg[block_name].instructions.insert(0, phi_node)

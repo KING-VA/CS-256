@@ -197,8 +197,12 @@ class CFG(object):
         return False
 
     def get_cfg_instruction_list(self, debug=False) -> list:
+        return CFG.instructions_from_cfg(self.cfg, debug=debug)
+    
+    @staticmethod
+    def instructions_from_cfg(cfg, debug=False) -> list:
         instrs = list()
-        for label, block in self.cfg.items():
+        for label, block in cfg.items():
             if debug:
                 instrs.append({'label' : ''+ label +'_cfg'})
             instrs.extend(block.instructions)

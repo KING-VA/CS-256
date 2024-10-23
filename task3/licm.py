@@ -1,6 +1,7 @@
 import sys
 import json
 import copy
+import click
 
 from cfg import CFG
 from ssa import SSA
@@ -34,9 +35,9 @@ def instruction_is_terminating(instr) -> bool:
         return True
     return False
 
-def licm(function) -> list:
-    cfg_class = CFG(function)
-    SSA.cfg_to_ssa(cfg_class)
+def licm(function, debug=False) -> list:
+    cfg_class = CFG.create_cfg_from_function(function)
+    SSA.cfg_to_ssa(cfg_class.cfg)
     if not cfg_class.is_reducible():
         return function
     use_block, def_block = variable_use_def_blocks(cfg_class.cfg)
@@ -112,15 +113,17 @@ def licm(function) -> list:
                         preheader_block.instructions.insert(-1, instruction)
                 block.instructions.pop(i)
                 og_idx += 1
-    return SSA.ssa_to_cfg(cfg_copy)
+    cfg_post_ssa = SSA.ssa_to_cfg(cfg_copy)
+    instruction_list = CFG.instructions_from_cfg(cfg_post_ssa, debug=debug)
+    return instruction_list
 
-def main():
+@click.command()
+@click.option('--debug', 'is_debug', is_flag=True, default=False, help='Enable debugging')
+def main(is_debug):
     prog = json.load(sys.stdin)
     for function in prog["functions"]:
-        use_blocks, def_blocks = variable_use_def_blocks(function)
-        print(json.dumps(use_blocks))
-        print(json.dumps(def_blocks))
-        print()
+        function["instrs"] = licm(function, debug=is_debug)
+    json.dump(prog, sys.stdout, indent=2)
 
 if __name__ == '__main__':
     main()
