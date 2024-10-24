@@ -20,9 +20,7 @@ def variable_use_def_blocks(cfg) -> tuple[dict, dict]:
                         use_blocks[arg] = set()
                     use_blocks[arg].add((block_name, instr_idx))
             if 'dest' in instr:
-                if instr['dest'] not in def_blocks:
-                    def_blocks[instr['dest']] = set()
-                def_blocks[str(instr['dest'])].add((block_name, instr_idx))
+                def_blocks[str(instr['dest'])] = (block_name, instr_idx)
     return use_blocks, def_blocks
 
 def instruction_can_error(instr) -> bool:
@@ -41,6 +39,8 @@ def instruction_is_terminating(instr) -> bool:
 
 def licm(function, debug=False) -> list:
     cfg_class = CFG.create_cfg_from_function(function['instrs'], debug=debug)
+    if len(cfg_class.cfg) <= 1:
+        return function['instrs']
     if debug:
         cfg_class.plot_cfg(CFG.DEFAULT_START_LABEL)
         cfg_class.plot_dominance_tree()
@@ -48,9 +48,11 @@ def licm(function, debug=False) -> list:
         print(cfg_class.back_edges)
         print("CFG Reducible")
         print(cfg_class.reducible)
+        print("CFG Dominators")
+        print(cfg_class.dominators)
     SSA.cfg_to_ssa(cfg_class)
     if not cfg_class.reducible:
-        return function
+        return function['instrs']
     use_block, def_block = variable_use_def_blocks(cfg_class.cfg)
     cfg_copy = copy.deepcopy(cfg_class.cfg)
     if debug:
@@ -68,10 +70,15 @@ def licm(function, debug=False) -> list:
                 print(f"Backedge {backedge} is not reachable from start label")
             continue
         preheader_blocks = set(
-            [label for label, block in cfg_copy.cfg.items() if header in block.pred]
+            [label for label, block in cfg_copy.items() if label in cfg_copy[header].pred]
         )
-        loop_info = cfg_copy.get_loop_information(backedge)
-        preheader_blocks -= loop_info['nodes']
+        if debug:
+            print(f"Preheader Blocks for header {header}: {preheader_blocks}")
+        loop_info = cfg_class.get_loop_information(backedge)
+        for block_name in loop_info['nodes']:
+            preheader_blocks.discard(block_name)
+        if debug:
+            print(f"Preheader Blocks for header {header}: {preheader_blocks}")
 
         loop_invariant = set()
         while True:
@@ -81,10 +88,10 @@ def licm(function, debug=False) -> list:
                 for instr_idx, instr in enumerate(block.instructions):
                     if 'args' not in instr:
                         continue
-                    if all(def_block[arg][0] not in loop_info['nodes'] for arg in instr['args']):
-                        loop_invariant.add((block_name, instr_idx))
-                    if all(def_block[arg] in new_loop_invariant for arg in instr['args']):
-                        loop_invariant.add((block_name, instr_idx))
+                    if all(def_block[arg][0] not in loop_info['nodes'] for arg in instr['args'] if arg in def_block):
+                        new_loop_invariant.add((block_name, instr_idx))
+                    if all(def_block[arg] in new_loop_invariant for arg in instr['args'] if arg in def_block):
+                        new_loop_invariant.add((block_name, instr_idx))
             if new_loop_invariant == loop_invariant:
                 break
             loop_invariant = new_loop_invariant
@@ -101,12 +108,17 @@ def licm(function, debug=False) -> list:
                     i += 1
                     og_idx += 1
                     continue
-                if 'dest' not in instruction:
+                if 'dest' not in instruction or instruction['dest'] == "":
                     i += 1
                     og_idx += 1
                     continue
                 dest = instruction['dest']
 
+                if debug:
+                    print(f"Checking instruction: {instr}")
+                    print(f"Checking if {dest} is loop invariant")
+                    for block_name_internal, instr_idx in use_block[dest]:
+                        print(f"Block Name: {block_name_internal}, Instruction Index: {instr_idx}, Instruction: {cfg_copy[block_name_internal].instructions[instr_idx]}")
                 non_dominated_uses = [cfg_copy[block_name_internal].instructions[instr_idx] for block_name_internal, instr_idx in use_block[dest] if block_name not in cfg_class.dominators[block_name_internal]]
 
                 if not (
@@ -129,7 +141,7 @@ def licm(function, debug=False) -> list:
                     continue
                 for header_name in preheader_blocks:
                     preheader_block = cfg_copy[header_name]
-                    if len(preheader_block) <= 0 or instruction_is_terminating(preheader_block.instructions[-1]):
+                    if len(preheader_block.instructions) <= 0 or instruction_is_terminating(preheader_block.instructions[-1]):
                         preheader_block.instructions.append(instruction)
                     else:
                         preheader_block.instructions.insert(-1, instruction)

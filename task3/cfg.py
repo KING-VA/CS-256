@@ -58,9 +58,17 @@ class CFG(object):
 
         for label, block in cfg.items():
             last_instr = block.instructions[-1]
+            if 'op' not in last_instr:
+                continue
             last_instr_op = last_instr['op']
             
-            if last_instr_op == "jmp":
+            if last_instr_op == "ret":
+                # This is the end of the CFG
+                # cfg[CFG.DEFAULT_END_LABEL] = BasicBlock([{'op': 'end', 'args': []}])
+                # add_to_successor(block, CFG.DEFAULT_END_LABEL)
+                # add_to_predecessor(cfg[CFG.DEFAULT_END_LABEL], label)
+                continue
+            elif last_instr_op == "jmp":
                 jmp_target = last_instr['labels'][0]
                 add_to_successor(block, jmp_target)
                 add_to_predecessor(cfg[jmp_target], label)
@@ -88,15 +96,12 @@ class CFG(object):
         dominators = dict()
         for label in self.cfg:
             dominators[label] = set()
-        dominators[CFG.DEFAULT_START_LABEL].add(CFG.DEFAULT_START_LABEL)
         changed = True
         while changed:
             changed = False
             for label in self.cfg:
-                if label == CFG.DEFAULT_START_LABEL:
-                    continue
                 predecessor_dom = [dominators[pred] for pred in self.cfg[label].pred if pred in dominators]
-                new_dominators = set.intersection(*predecessor_dom) if predecessor_dom else set()
+                new_dominators = set.intersection(*predecessor_dom) if len(predecessor_dom) else set()
                 new_dominators.add(label)
                 if new_dominators != dominators[label]:
                     changed = True

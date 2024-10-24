@@ -24,8 +24,11 @@ class SSA(object):
                     for i, label in enumerate(instr["labels"]):
                         var = instr["args"][i]
                         if var != 'undef':
-                            copy_instr = {"op": "id", "type": typ, "args": [var], "dest": dest}
-                            cfg[label].instructions.insert(-1, copy_instr)
+                            if var == dest:
+                                continue
+                            else:
+                                copy_instr = {"op": "id", "type": typ, "args": [var], "dest": dest}
+                                cfg[label].instructions.insert(-1, copy_instr)
 
             block.instructions = [
                 instr for instr in copy.deepcopy(block.instructions) if instr.get("op") != "phi"
@@ -100,8 +103,9 @@ class SSA(object):
                         mapping_block_to_phi[successor][variable]["args"].append(new_arg)
                         mapping_block_to_phi[successor][variable]["labels"].append(block_name)
             
-            for successor in dominance_tree[block_name].succ:
-                rename_helper(stack, successor)
+            if block_name in dominance_tree:
+                for successor in dominance_tree[block_name].succ:
+                    rename_helper(stack, successor)
 
             stack.clear()
             stack.update(saved_stack)

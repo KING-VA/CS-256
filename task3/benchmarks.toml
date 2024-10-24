@@ -7,24 +7,9 @@ pipeline = [
     "brili -p {args}",
 ]
 
-[runs.lvn_pass]
+[runs.licm]
 pipeline = [
     "bril2json",
-    "python pass_processor.py --local_value_numbering",
-    "brili -p {args}",
-]
-
-[runs.liveness]
-pipeline = [
-    "bril2json",
-    "python pass_processor.py --liveness",
-    "brili -p {args}",
-]
-
-[runs.lvn_liveness]
-pipeline = [
-    "bril2json",
-    "python pass_processor.py --local_value_numbering",
-    "python pass_processor.py --liveness",
+    "python licm.py",
     "brili -p {args}",
 ]
