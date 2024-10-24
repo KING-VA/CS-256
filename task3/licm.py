@@ -164,6 +164,8 @@ def main(is_debug):
     prog = json.load(sys.stdin)
     for function in prog["functions"]:
         function["instrs"] = licm(function, debug=is_debug)
+        if is_debug:
+            break
     json.dump(prog, sys.stdout, indent=2)
 
 if __name__ == '__main__':
