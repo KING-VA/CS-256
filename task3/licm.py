@@ -4,7 +4,7 @@ import copy
 import click
 
 from cfg import CFG
-from ssa import SSA
+from ssa_old import SSA
 from bril_constants import SPECIAL_OPERATIONS, TERMINATING_INSTRUCTIONS
 
 def variable_use_def_blocks(cfg) -> tuple[dict, dict]:
