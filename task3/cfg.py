@@ -5,7 +5,9 @@ import copy
 import graphviz
 
 from basic_blocks import BasicBlock
-
+import logging
+logging.basicConfig(level=logging.DEBUG, filename='licm.log')
+logger = logging.getLogger(__name__)
 class DominanceTree(object):
     def __init__(self, name):
         self.name = name
@@ -94,12 +96,12 @@ class CFG(object):
     
     def compute_dominators(self) -> Dict[str, set]:
         dominators = dict()
-        for label in self.cfg:
-            dominators[label] = set()
         changed = True
         while changed:
             changed = False
             for label in self.cfg:
+                if label not in dominators:
+                    dominators[label] = set()
                 predecessor_dom = [dominators[pred] for pred in self.cfg[label].pred if pred in dominators]
                 new_dominators = set.intersection(*predecessor_dom) if len(predecessor_dom) else set()
                 new_dominators.add(label)
@@ -173,10 +175,8 @@ class CFG(object):
     def get_loop_information(self, backedge) -> dict:
         tail, header = backedge
         cfg_edges = copy.deepcopy(self.edges)
-        for source, dest in self.back_edges:
-            if dest == header:
-                cfg_edges.remove((source, dest))
-            if source == header:
+        for source, dest in self.edges:
+            if dest == header or source == header:
                 cfg_edges.remove((source, dest))
 
         nodes = set()
@@ -246,8 +246,9 @@ class CFG(object):
     def create_cfg_from_function(instructions, reverse=False, debug=False) -> Self:
         blocks = BasicBlock.create_blocks_from_function(instructions)
         if debug:
+            logger.debug("Basic Blocks")
             for block in blocks:
-                print(block)
+                logger.debug(block)
         return CFG(blocks, reverse=reverse)
 
 def main():
