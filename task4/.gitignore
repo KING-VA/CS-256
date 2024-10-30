@@ -1,0 +1,10 @@
+*.csv
+*.png
+*.sh
+*.bril
+*.log
+
+!cfg.png
+!output_distribution.png
+!output_percent_removed.png
+!output.csv
