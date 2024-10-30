@@ -60,7 +60,7 @@ def licm(function, debug=False) -> list:
         logger.debug(cfg_class.dominance_tree)
         logger.debug("CFG Original")
         logger.debug(cfg_class.cfg)
-    # SSA.cfg_to_ssa(cfg_class)
+    SSA.cfg_to_ssa(cfg_class)
     if not cfg_class.reducible:
         return function['instrs']
     use_block, def_block = variable_use_def_blocks(cfg_class.cfg)
@@ -165,7 +165,7 @@ def licm(function, debug=False) -> list:
     if debug:
         logger.debug("CFG Pre SSA Conversion")
         logger.debug(cfg_copy)
-    # SSA.ssa_to_cfg(cfg_copy)
+    SSA.ssa_to_cfg(cfg_copy)
     instruction_list = CFG.instructions_from_cfg(cfg_copy)
     if debug:
         logger.debug("CFG Post SSA Conversion")

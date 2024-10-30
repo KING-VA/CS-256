@@ -1,6 +1,8 @@
 *.csv
 *.png
 *.sh
+*.bril
+*.log
 
 !cfg.png
 !output_distribution.png
