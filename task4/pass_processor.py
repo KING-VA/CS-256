@@ -8,26 +8,11 @@ logger = logging.getLogger(__name__)
 
 from cfg import CFG
 from lvn import LocalValueNumbering
-from basic_blocks import BasicBlock
 
 class WorkListPasses(object):
     """
     A worklist class to help process the different passes on the CFG
-    """
-
-    @staticmethod
-    def dead_store_elimination(instructions, debug=False) -> list:
-        """ Perform Dead Store Elimination on the function's instructions and return the optimized instructions """
-        reverse_analysis = False
-        cfg_class = CFG.create_cfg_from_function(instructions, reverse=reverse_analysis)
-        cfg = cfg_class.cfg
-        def merge_fn(inputs) -> set:
-            """ Merge function for the worklist algorithm """
-            if not inputs:
-                return set()
-            return set.intersection(*inputs)
-        
-
+    """       
     @staticmethod
     def liveness_analysis(instructions, debug=False) -> list:
         """ Perform Liveness Analysis on the function's instructions and return the optimized instructions after global dead code elimination """
@@ -185,7 +170,6 @@ class WorkListPasses(object):
 @click.command()
 @click.option('--liveness', 'is_liveness', is_flag=True, default=False, help='Liveness Analysis Flag')
 @click.option('--local_value_numbering', 'is_local_value_numbering', is_flag=True, default=False, help='Local Value Numbering Flag')
-@click.option('--dead_store_elimination', 'is_dead_store_elimination', is_flag=True, default=False, help='Dead Store Elimination Flag')
 @click.option('--debug', 'is_debug', is_flag=True, default=False, help='Debug Flag')
 def main(is_liveness, is_local_value_numbering, is_debug, is_dead_store_elimination):
     """ Main function for CFG Processor -- parses input and calls the appropriate pass """
@@ -197,9 +181,6 @@ def main(is_liveness, is_local_value_numbering, is_debug, is_dead_store_eliminat
         elif is_local_value_numbering:
             logging.info("Starting Local Value Numbering")
             instr = WorkListPasses.local_value_numbering(fn['instrs'], debug=is_debug)
-        elif is_dead_store_elimination:
-            logging.info("Starting Dead Store Elimination")
-            instr = WorkListPasses.dead_store_elimination(fn['instrs'], debug=is_debug)
         else:
             logging.warning("No pass selected, please select a pass to run")
             instr = fn['instrs']
