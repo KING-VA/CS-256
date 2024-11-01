@@ -5,9 +5,10 @@ import copy
 import click
 
 from cfg import CFG
+from ssa import SSA
 
 import logging
-logging.basicConfig(level=logging.WARNING, filename='pass_processor.log')
+logging.basicConfig(level=logging.WARNING, filename='aliasing.log')
 logger = logging.getLogger(__name__)
 
 class AliasAnalysis(object):
@@ -34,44 +35,116 @@ class AliasAnalysis(object):
             store p x: no change
 
     """
-    def __init__(self, cfg_class: CFG):
+    ALL_MEM_LOCATIONS = "all_mem_locations"
+
+    def __init__(self, cfg_class: CFG, input_variables_dict: dict, debug=False):
+        """ Initialize the AliasAnalysis object """
         self.cfg_class = cfg_class
         self.cfg = cfg_class.cfg
+        self.input_variables_dict = input_variables_dict
+        self.input_variables = dict()
+        for var in input_variables_dict:
+            if input_variables_dict[var]:
+                self.input_variables[var] = set([AliasAnalysis.ALL_MEM_LOCATIONS])
+        
+        # Run the worklist algorithm to compute the points-to graph
+        self.inputs, self.outputs = AliasAnalysis.worklist_algorithm(self.cfg, AliasAnalysis.merge_fn, AliasAnalysis.transfer_fn, reverse=False, debug=debug, starting_input=self.input_variables)
+        # Use the points-to graph to perform alias analysis --> returning a dictionary of variables that contain of set of variables that they may alias with
+        self.alias_analysis = AliasAnalysis.compute_alias_analysis(self.outputs)
+
+        if debug:
+            logging.debug("Alias Analysis:")
+            logging.debug(self.alias_analysis)
+
+    @staticmethod
+    def dead_store_elimination(cfg: CFG, debug=False) -> list:
+        """ Perform Dead Store Elimination on the function's instructions and return the optimized instructions """
+        # Compute the input variables
+        defs, types, uses, input_variables_dict = SSA.get_defs_uses_types_inputs(cfg)
+        
+        # Compute the alias analysis
+        alias_analysis_class = AliasAnalysis(cfg, input_variables_dict, debug=debug)
+        alias_analysis = alias_analysis_class.alias_analysis
+
+        # Get instructions from the CFG
+        cfg_instructions = cfg.get_cfg_instruction_list()
+        cfg_instructions_copy = copy.deepcopy(cfg_instructions)
+
+        # Remove dead stores from the CFG
+        for idx_1, instr in enumerate(cfg_instructions):
+            # Check to see that the original variable and any aliases are not being used
+            if 'op' in instr and instr['op'] == 'store':
+                can_remove = True
+                for instr2 in cfg_instructions[idx_1+1:]:
+                    if 'args' in instr2:
+                        for arg in instr2['args']:
+                            if instr['dest'] == arg or arg in alias_analysis[instr['dest']]:
+                                can_remove = False
+                                break
+                if can_remove:
+                    if debug:
+                        logging.debug(f"Removing dead store: {instr}")
+                    cfg_instructions_copy.remove(instr)
+        if debug:
+            logging.info("Dead Store Elimination Complete")
+        return cfg_instructions_copy
+             
+    @staticmethod
+    def compute_alias_analysis(state_mapping: dict) -> dict:
+        """ Compute the alias analysis from the outputs of the worklist algorithm
+                Input: Dict mapping variable to memory region
+                Output: Dict mapping variable to their aliases (Using intersection of memory regions to find aliases)
+        """
+        alias_analysis = dict()
+        for var in state_mapping:
+            alias_analysis[var] = set()
+            for other_var in state_mapping:
+                if var != other_var and state_mapping[var].intersection(state_mapping[other_var]) or AliasAnalysis.ALL_MEM_LOCATIONS in var or AliasAnalysis.ALL_MEM_LOCATIONS in other_var:
+                    alias_analysis[var].add(other_var)
+        return alias_analysis
 
     @staticmethod
     def merge_fn(inputs: list[dict]) -> dict:
         """ Merge function for the alias analysis algorithm """
-        input_copy = copy.deepcopy(inputs)
-        keys = input_copy[0].keys()
+        inputs_copy = copy.deepcopy(inputs)
         output = dict()
-        for key in keys:
-            output[key] = set.union(*input_copy[key])
+        for key in inputs_copy[0].keys():
+            output[key] = set.union(*[inputs[key] for inputs in inputs_copy])
         return output
     
     @staticmethod
     def transfer_fn(block, inputs: dict) -> dict:
         """ Transfer function for the alias analysis algorithm """
-        memory_set = copy.deepcopy(inputs)
+        def add_to_set(dest, value, state_mapping):
+            if dest in state_mapping:
+                state_mapping[dest].add(value)
+            else:
+                state_mapping[dest] = set([value])
+            return state_mapping
+
+        state_mapping = copy.deepcopy(inputs)
         for instr in block.instructions:
             if 'op' in instr:
+                dest = instr['dest']
+                # value = instr['value']
                 if instr['op'] == 'alloc':
-                    memory_set[instr['dest']] = set([instr['value']])
-                elif instr['op'] == 'id' or instr['op'] == 'ptradd':
-                    if instr['value'] in memory_set:
-                        memory_set[instr['dest']] = memory_set[instr['value']]
+                    add_to_set(dest, instr['value'], state_mapping)
+                elif (instr['op'] == 'id' or instr['op'] == 'ptradd'):
+                    if instr['args'][0] in state_mapping:
+                        add_to_set(dest, instr['args'][0], state_mapping)
                 elif instr['op'] == 'load':
-                    memory_set[instr['dest']] = set([instr['value']])
-        return memory_set
+                    add_to_set(dest, AliasAnalysis.ALL_MEM_LOCATIONS, state_mapping)
 
-    
+        return state_mapping
+
     @staticmethod
-    def worklist_algorithm(cfg, merge_fn, transfer_fn, reverse, debug=False) -> tuple:
+    def worklist_algorithm(cfg, merge_fn, transfer_fn, reverse, debug=False, starting_input:dict=None) -> tuple:
         """ Perform the worklist algorithm given the current CFG, merge function, and transfer function """
         inputs = dict()
         outputs = dict()
         for label in cfg:
-            inputs[label] = dict()
-            outputs[label] = set()
+            inputs[label] = dict() if starting_input is None else starting_input
+            outputs[label] = dict()
         worklist = copy.deepcopy(cfg)
         while worklist:
             label = list(worklist.keys())[0]
@@ -90,10 +163,10 @@ class AliasAnalysis(object):
                     worklist[succ] = cfg[succ]
 
             if debug:
-                print(f"Processed block {label}")
-                print(f"Worklist: {list(worklist.keys())}")
-                print(f"Inputs: {inputs}")
-                print(f"Outputs: {outputs}")
+                logging.debug(f"Processed block {label}")
+                logging.debug(f"Worklist: {list(worklist.keys())}")
+                logging.debug(f"Inputs: {inputs}")
+                logging.debug(f"Outputs: {outputs}")
 
         if debug:
             AliasAnalysis.print_inputs_outputs(inputs, outputs, reverse=reverse)
@@ -103,80 +176,28 @@ class AliasAnalysis(object):
         """ Print the inputs and outputs for debugging """
         def print_helper(set_dict):
             if len(set_dict) == 0:
-                print("∅")
+                logging.debug("∅")
             else:
                 list_set = list(set_dict)
                 list_set.sort()
                 for idx, value in enumerate(list_set):
                     if idx == len(list_set) - 1:
-                        print(value)
+                        logging.debug(value)
                     else:
-                        print(value, end=", ")
+                        logging.debug(value, end=", ")
 
         for key in inputs.keys():
-            print(f"{key}:")
+            logging.debug(f"{key}:")
             if reverse:
-                print("\tin:\t", end="")
+                logging.debug("\tin:\t", end="")
                 print_helper(outputs[key])
-                print("\tout:\t", end="")
+                logging.debug("\tout:\t", end="")
                 print_helper(inputs[key])
             else:
-                print("\tin:\t", end="")
+                logging.debug("\tin:\t", end="")
                 print_helper(inputs[key])
-                print("\tout:\t", end="")
+                logging.debug("\tout:\t", end="")
                 print_helper(outputs[key])
-    
-
-
-# def dead_store_elimination(instructions, debug=False) -> list:
-#     """ Perform Dead Store Elimination on the function's instructions and return the optimized instructions """
-#     all_mem_locations = "all_mem_locations"
-#     reverse_analysis = False
-#     cfg_class = CFG.create_cfg_from_function(instructions, reverse=reverse_analysis)
-#     cfg = cfg_class.cfg
-#     # Compute the input variables for the function and have the input variables 
-#     defs, types, uses, input_variables_dict = SSA.get_defs_uses_types_inputs(cfg)
-#     input_variables = set([var for var in input_variables_dict if input_variables_dict[var]])
-    
-#     # Create state mapping for the tracking of all variables and their memory locations
-#     state_dict = dict()
-
-#     # Initialize the state for the input variables to the function
-#     for input_var in input_variables:
-#         state_dict[input_var] = set([all_mem_locations])
-
-#     def merge_fn(inputs) -> set:
-#         """ Merge function for the worklist algorithm """
-#         if not inputs:
-#             return set()
-#         return set.union(*inputs)
-    
-#     for analysis_variable in defs:
-#         def transfer_fn(block, inputs, currentVariable=analysis_variable) -> set:
-#             """ Transfer function for the worklist algorithm """
-#             memorySet = copy.deepcopy(inputs) 
-#             instructions = copy.deepcopy(block.instructions)
-#             for instr in instructions:
-#                 if 'op' in instr:
-#                     if instr['op'] == 'alloc' and instr['dest'] == currentVariable:
-#                         memorySet.add(instr['value'])
-#                     elif instr['op'] == 'id' or instr['op'] == 'ptradd':
-#                         if instr['value'] == currentVariable:
-#                             add_to_set(instr['dest'], instr['value'], memorySet)
-#                     elif instr['op'] == 'load':
-#                         add_to_set(instr['dest'], all_mem_locations, memorySet)
-                    
-#             return memorySet
-        
-#         inputSet, outputSet = WorkListPasses.worklist_algorithm(cfg, merge_fn, transfer_fn, reverse_analysis, debug=debug)
-
-#     # Remove dead stores from the CFG
-#     cfg_copy = copy.deepcopy(cfg)
-#     for label, block in cfg_copy.items():
-#         actual_block = cfg[label]
-#         for idx, instr in enumerate(block.instructions):
-#             if 'op' in instr and instr['op'] == 'store' and instr['dest'] in inputSet[label] and instr['value'] in inputSet[label]:
-#                 actual_block.instructions.remove(instr)
 
 @click.command()
 @click.option('--debug', 'is_debug', is_flag=True, default=False, help='Debug Flag')
@@ -186,7 +207,7 @@ def main(is_debug):
     logging.info("Starting Alias Analysis for Dead Store Elimination")
     for fn in prog["functions"]:
         cfg = CFG.create_cfg_from_function(fn['instrs'])
-        instr = AliasAnalysis.dead_store_elimination(cfg, fn['instrs'], debug=is_debug)
+        instr = AliasAnalysis.dead_store_elimination(cfg, debug=is_debug)
         fn['instrs'] = instr
     json.dump(prog, sys.stdout, indent=2)
 
