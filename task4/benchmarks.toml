@@ -7,9 +7,9 @@ pipeline = [
     "brili -p {args}",
 ]
 
-[runs.licm]
+[runs.dead_store]
 pipeline = [
     "bril2json",
-    "python licm.py",
+    "python aliasing.py",
     "brili -p {args}",
 ]
