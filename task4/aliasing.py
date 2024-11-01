@@ -8,7 +8,7 @@ from cfg import CFG
 from ssa import SSA
 
 import logging
-logging.basicConfig(level=logging.WARNING, filename='aliasing.log')
+logging.basicConfig(filename='aliasing.log', level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 class AliasAnalysis(object):
@@ -39,6 +39,7 @@ class AliasAnalysis(object):
 
     def __init__(self, cfg_class: CFG, input_variables_dict: dict, debug=False):
         """ Initialize the AliasAnalysis object """
+        self.unique_loc_num = 0
         self.cfg_class = cfg_class
         self.cfg = cfg_class.cfg
         self.input_variables_dict = input_variables_dict
@@ -46,15 +47,66 @@ class AliasAnalysis(object):
         for var in input_variables_dict:
             if input_variables_dict[var]:
                 self.input_variables[var] = set([AliasAnalysis.ALL_MEM_LOCATIONS])
-        
-        # Run the worklist algorithm to compute the points-to graph
-        self.inputs, self.outputs = AliasAnalysis.worklist_algorithm(self.cfg, AliasAnalysis.merge_fn, AliasAnalysis.transfer_fn, reverse=False, debug=debug, starting_input=self.input_variables)
-        # Use the points-to graph to perform alias analysis --> returning a dictionary of variables that contain of set of variables that they may alias with
-        self.alias_analysis = AliasAnalysis.compute_alias_analysis(self.outputs)
-
         if debug:
-            logging.debug("Alias Analysis:")
-            logging.debug(self.alias_analysis)
+            logger.debug("Input Variables:")
+            logger.debug(self.input_variables)
+        # Run the worklist algorithm to compute the points-to graph
+        self.inputs, self.outputs, self.final_output = AliasAnalysis.worklist_algorithm(self.cfg, self.merge_fn, self.transfer_fn, reverse=False, debug=debug, starting_input=self.input_variables)
+        if debug:
+            logger.debug("Final Output:")
+            logger.debug(self.final_output)
+            logger.debug("Outputs:")
+            logger.debug(self.outputs)
+            logger.debug("Inputs:")
+            logger.debug(self.inputs)
+        # Use the points-to graph to perform alias analysis --> returning a dictionary of variables that contain of set of variables that they may alias with
+        self.alias_analysis = AliasAnalysis.compute_alias_analysis(self.final_output)
+        if debug:
+            logger.debug("Alias Analysis:")
+            logger.debug(self.alias_analysis)
+
+    def get_unique_loc_num(self):
+        """ Get a unique location number for a memory location """
+        self.unique_loc_num += 1
+        return self.unique_loc_num
+    
+    def merge_fn(self, inputs: list[dict]) -> dict:
+        """ Merge function for the alias analysis algorithm """
+        if not inputs or len(inputs) == 0:
+            return dict()
+        output = dict()
+        logger.debug(f"Merge Inputs: {inputs}")
+        for key in inputs[0].keys():
+            output[key] = set.union(*[input[key] for input in inputs if key in input])
+        return output
+
+    def transfer_fn(self, block, inputs: dict) -> dict:
+        """ Transfer function for the alias analysis algorithm """
+        def add_to_set(dest, value, state_mapping):
+            if type(value) is not set:
+                value = set([value])
+            if dest in state_mapping:
+                for val in value:
+                    state_mapping[dest].add(val)
+            else:
+                state_mapping[dest] = set(value)
+            return state_mapping
+
+        state_mapping = copy.deepcopy(inputs)
+        for instr in block.instructions:
+            if 'op' in instr:
+                if instr['op'] == 'alloc':
+                    logging.debug(f"Allocating {instr['dest']}: {instr}")
+                    add_to_set(instr['dest'], self.get_unique_loc_num(), state_mapping)
+                elif (instr['op'] == 'id' or instr['op'] == 'ptradd'):
+                    logging.debug(f"Copying {instr['args'][0]} to {instr['dest']}: {instr}")
+                    if instr['args'][0] in state_mapping:
+                        add_to_set(instr['dest'], state_mapping[instr['args'][0]], state_mapping)
+                elif instr['op'] == 'load':
+                    logging.debug(f"Loading {instr['args'][0]} to {instr['dest']}: {instr}")
+                    add_to_set(instr['dest'], AliasAnalysis.ALL_MEM_LOCATIONS, state_mapping)
+
+        return state_mapping
 
     @staticmethod
     def dead_store_elimination(cfg: CFG, debug=False) -> list:
@@ -74,19 +126,21 @@ class AliasAnalysis(object):
         for idx_1, instr in enumerate(cfg_instructions):
             # Check to see that the original variable and any aliases are not being used
             if 'op' in instr and instr['op'] == 'store':
+                logger.debug(f"Checking Dead Store: {instr}")
                 can_remove = True
                 for instr2 in cfg_instructions[idx_1+1:]:
                     if 'args' in instr2:
                         for arg in instr2['args']:
                             if instr['dest'] == arg or arg in alias_analysis[instr['dest']]:
+                                logger.debug(f"Cannot remove dead store: {instr} because it is used by {instr2}")
                                 can_remove = False
                                 break
+                            logger.debug(f"Checking {instr['dest']} against {arg} and {alias_analysis[instr['dest']]}")
                 if can_remove:
                     if debug:
-                        logging.debug(f"Removing dead store: {instr}")
+                        logger.debug(f"Removing dead store: {instr}")
                     cfg_instructions_copy.remove(instr)
-        if debug:
-            logging.info("Dead Store Elimination Complete")
+
         return cfg_instructions_copy
              
     @staticmethod
@@ -99,43 +153,10 @@ class AliasAnalysis(object):
         for var in state_mapping:
             alias_analysis[var] = set()
             for other_var in state_mapping:
-                if var != other_var and state_mapping[var].intersection(state_mapping[other_var]) or AliasAnalysis.ALL_MEM_LOCATIONS in var or AliasAnalysis.ALL_MEM_LOCATIONS in other_var:
+                if var != other_var and (state_mapping[var].intersection(state_mapping[other_var]) or AliasAnalysis.ALL_MEM_LOCATIONS in state_mapping[var] or AliasAnalysis.ALL_MEM_LOCATIONS in state_mapping[other_var]):
                     alias_analysis[var].add(other_var)
+
         return alias_analysis
-
-    @staticmethod
-    def merge_fn(inputs: list[dict]) -> dict:
-        """ Merge function for the alias analysis algorithm """
-        inputs_copy = copy.deepcopy(inputs)
-        output = dict()
-        for key in inputs_copy[0].keys():
-            output[key] = set.union(*[inputs[key] for inputs in inputs_copy])
-        return output
-    
-    @staticmethod
-    def transfer_fn(block, inputs: dict) -> dict:
-        """ Transfer function for the alias analysis algorithm """
-        def add_to_set(dest, value, state_mapping):
-            if dest in state_mapping:
-                state_mapping[dest].add(value)
-            else:
-                state_mapping[dest] = set([value])
-            return state_mapping
-
-        state_mapping = copy.deepcopy(inputs)
-        for instr in block.instructions:
-            if 'op' in instr:
-                dest = instr['dest']
-                # value = instr['value']
-                if instr['op'] == 'alloc':
-                    add_to_set(dest, instr['value'], state_mapping)
-                elif (instr['op'] == 'id' or instr['op'] == 'ptradd'):
-                    if instr['args'][0] in state_mapping:
-                        add_to_set(dest, instr['args'][0], state_mapping)
-                elif instr['op'] == 'load':
-                    add_to_set(dest, AliasAnalysis.ALL_MEM_LOCATIONS, state_mapping)
-
-        return state_mapping
 
     @staticmethod
     def worklist_algorithm(cfg, merge_fn, transfer_fn, reverse, debug=False, starting_input:dict=None) -> tuple:
@@ -143,14 +164,18 @@ class AliasAnalysis(object):
         inputs = dict()
         outputs = dict()
         for label in cfg:
-            inputs[label] = dict() if starting_input is None else starting_input
+            inputs[label] = dict()
             outputs[label] = dict()
         worklist = copy.deepcopy(cfg)
+        final_outputs = None
         while worklist:
             label = list(worklist.keys())[0]
             block = worklist.pop(label)
-
-            block_inputs = [outputs[pred] for pred in block.pred]
+            
+            if label == CFG.DEFAULT_START_LABEL and starting_input:
+                block_inputs = [starting_input]
+            else:
+                block_inputs = [outputs[pred] for pred in block.pred]
             inputs[label] = merge_fn(block_inputs)
             
             block_outputs = transfer_fn(block, inputs[label])
@@ -161,42 +186,43 @@ class AliasAnalysis(object):
                 outputs[label] = block_outputs
                 for succ in block.succ:
                     worklist[succ] = cfg[succ]
+                final_outputs = block_outputs
 
             if debug:
-                logging.debug(f"Processed block {label}")
-                logging.debug(f"Worklist: {list(worklist.keys())}")
-                logging.debug(f"Inputs: {inputs}")
-                logging.debug(f"Outputs: {outputs}")
+                logger.debug(f"Processed block {label}")
+                logger.debug(f"Worklist: {list(worklist.keys())}")
+                logger.debug(f"Inputs: {inputs}")
+                logger.debug(f"Outputs: {outputs}")
 
-        if debug:
+        if False: # debug:
             AliasAnalysis.print_inputs_outputs(inputs, outputs, reverse=reverse)
-        return (inputs, outputs)
+        return (inputs, outputs, final_outputs)
     
     def print_inputs_outputs(inputs, outputs, reverse=False):
         """ Print the inputs and outputs for debugging """
         def print_helper(set_dict):
             if len(set_dict) == 0:
-                logging.debug("∅")
+                logger.debug("∅")
             else:
                 list_set = list(set_dict)
                 list_set.sort()
                 for idx, value in enumerate(list_set):
                     if idx == len(list_set) - 1:
-                        logging.debug(value)
+                        logger.debug(value)
                     else:
-                        logging.debug(value, end=", ")
+                        logger.debug(f"{value}, ")
 
         for key in inputs.keys():
-            logging.debug(f"{key}:")
+            logger.debug(f"{key}:")
             if reverse:
-                logging.debug("\tin:\t", end="")
+                logger.debug("\tin:\t")
                 print_helper(outputs[key])
-                logging.debug("\tout:\t", end="")
+                logger.debug("\tout:\t")
                 print_helper(inputs[key])
             else:
-                logging.debug("\tin:\t", end="")
+                logger.debug("\tin:\t")
                 print_helper(inputs[key])
-                logging.debug("\tout:\t", end="")
+                logger.debug("\tout:\t")
                 print_helper(outputs[key])
 
 @click.command()
@@ -204,11 +230,12 @@ class AliasAnalysis(object):
 def main(is_debug):
     """ Main function for alias analysis processor -- similar structure to the pass processor but more generalized for alias analysis """
     prog = json.load(sys.stdin)
-    logging.info("Starting Alias Analysis for Dead Store Elimination")
+    logger.info("Starting Alias Analysis for Dead Store Elimination")
     for fn in prog["functions"]:
         cfg = CFG.create_cfg_from_function(fn['instrs'])
         instr = AliasAnalysis.dead_store_elimination(cfg, debug=is_debug)
         fn['instrs'] = instr
+    logger.info(f"Dead Store Elimination Complete")
     json.dump(prog, sys.stdout, indent=2)
 
 if __name__ == "__main__":
