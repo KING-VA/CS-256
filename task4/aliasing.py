@@ -111,6 +111,15 @@ class AliasAnalysis(object):
     @staticmethod
     def dead_store_elimination(cfg: CFG, debug=False) -> list:
         """ Perform Dead Store Elimination on the function's instructions and return the optimized instructions """
+        def remove_variable_and_aliases(alias_analysis, variable, last_store) -> dict:
+            aliases = alias_analysis.get(instr['args'][0], set())
+            last_store.pop(variable, None)
+            for alias in aliases:
+                last_store.pop(alias, None)
+            if AliasAnalysis.ALL_MEM_LOCATIONS in aliases:
+                last_store = dict()
+            return last_store
+
         # Compute the input variables
         defs, types, uses, input_variables_dict = SSA.get_defs_uses_types_inputs(cfg)
         
@@ -123,23 +132,24 @@ class AliasAnalysis(object):
         cfg_instructions_copy = copy.deepcopy(cfg_instructions)
 
         # Remove dead stores from the CFG
-        for idx_1, instr in enumerate(cfg_instructions):
-            # Check to see that the original variable and any aliases are not being used
-            if 'op' in instr and instr['op'] == 'store':
-                logger.debug(f"Checking Dead Store: {instr}")
-                can_remove = True
-                for instr2 in cfg_instructions[idx_1+1:]:
-                    if 'args' in instr2:
-                        for arg in instr2['args']:
-                            if instr['dest'] == arg or arg in alias_analysis[instr['dest']]:
-                                logger.debug(f"Cannot remove dead store: {instr} because it is used by {instr2}")
-                                can_remove = False
-                                break
-                            logger.debug(f"Checking {instr['dest']} against {arg} and {alias_analysis[instr['dest']]}")
-                if can_remove:
-                    if debug:
-                        logger.debug(f"Removing dead store: {instr}")
-                    cfg_instructions_copy.remove(instr)
+        last_store = dict()
+        for idx, instr in enumerate(cfg_instructions):
+            if 'op' in instr:
+                if instr['op'] == 'ptradd' and instr['dest'] in last_store:
+                    # For each ptradd, if the variable is being changed, remove the variable from the last store dictionary since it is being modified so the variable matching doesn't mean anything (here we aren't checking what the offset and default removal to be more conservative)
+                    last_store = remove_variable_and_aliases(alias_analysis, instr['dest'], last_store)
+                elif instr['op'] == 'load':
+                    # For each load, remove the variable from the last store dictionary since it is being used (here use the alias analysis to be more conservative)
+                    last_store = remove_variable_and_aliases(alias_analysis, instr['args'][0], last_store)
+                elif instr['op'] == 'store':
+                    # For each store check to see if the variable is being overwritten -- convervatively only remove if it is the same variable (no alias)
+                    if instr['args'][0] in last_store:
+                        if debug:
+                            logger.debug(f"Removing dead store: {instr}")
+                        cfg_instructions_copy.remove(instr)
+                    else:
+                        logger.debug(f"Adding Store: {instr}")
+                        last_store[instr['args'][0]] = idx
 
         return cfg_instructions_copy
              
@@ -155,6 +165,8 @@ class AliasAnalysis(object):
             for other_var in state_mapping:
                 if var != other_var and (state_mapping[var].intersection(state_mapping[other_var]) or AliasAnalysis.ALL_MEM_LOCATIONS in state_mapping[var] or AliasAnalysis.ALL_MEM_LOCATIONS in state_mapping[other_var]):
                     alias_analysis[var].add(other_var)
+            if AliasAnalysis.ALL_MEM_LOCATIONS in state_mapping[var]:
+                alias_analysis[var].add(AliasAnalysis.ALL_MEM_LOCATIONS)
 
         return alias_analysis
 
