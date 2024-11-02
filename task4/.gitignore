@@ -10,3 +10,4 @@
 !output.csv
 !input.bril
 !setup_input.bril
+!run.sh
