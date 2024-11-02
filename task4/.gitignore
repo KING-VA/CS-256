@@ -8,3 +8,5 @@
 !output_distribution.png
 !output_percent_removed.png
 !output.csv
+!input.bril
+!setup_input.bril

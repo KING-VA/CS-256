@@ -3,7 +3,7 @@ import click
 import pandas as pd
 import matplotlib.pyplot as plt
 
-PATH_NAMES = ['benchmarks_ssa']
+PATH_NAMES = ['benchmarks']
 
 def combineFiles():
     # Combine the files

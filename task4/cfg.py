@@ -22,8 +22,10 @@ class CFG(object):
     DEFAULT_END_LABEL = "end_cfg"
 
     def __init__(self, basic_blocks, reverse=False):
+        self.unique_id = 0
+
         self.reverse = reverse
-        self.cfg = CFG.build_cfg(basic_blocks, reverse)
+        self.cfg = self.build_cfg(basic_blocks, reverse)
         self.dominators = self.compute_dominators()
         self.dominance_frontiers = self.compute_dominance_frontiers()
         self.dominance_tree = self.build_dominance_tree()
@@ -38,8 +40,11 @@ class CFG(object):
                 edges.add((label, succ))
         return edges
     
-    @staticmethod
-    def build_cfg(basic_blocks, reverse) -> Dict[str, BasicBlock]:
+    def get_unique_name(self) -> str:
+        self.unique_id += 1
+        return f"cfg_block_unlabelled_{self.unique_id - 1}"
+    
+    def build_cfg(self, basic_blocks, reverse) -> Dict[str, BasicBlock]:
         cfg = dict()
 
         # Setup add_to_successor and add_to_predecessor functions
@@ -52,7 +57,12 @@ class CFG(object):
 
         for block in basic_blocks:
             # Assume that the block is the start node if it doesn't have a label
-            label = CFG.DEFAULT_START_LABEL
+            if self.unique_id == 0:
+                label = CFG.DEFAULT_START_LABEL
+                self.unique_id = 1
+            else:
+                label = self.get_unique_name()
+
             first_instr = block.instructions[0]
             if "label" in first_instr:
                 label = first_instr['label']

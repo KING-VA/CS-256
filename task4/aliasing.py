@@ -107,51 +107,6 @@ class AliasAnalysis(object):
                     add_to_set(instr['dest'], AliasAnalysis.ALL_MEM_LOCATIONS, state_mapping)
 
         return state_mapping
-
-    @staticmethod
-    def dead_store_elimination(cfg: CFG, debug=False) -> list:
-        """ Perform Dead Store Elimination on the function's instructions and return the optimized instructions """
-        def remove_variable_and_aliases(alias_analysis, variable, last_store) -> dict:
-            aliases = alias_analysis.get(instr['args'][0], set())
-            last_store.pop(variable, None)
-            for alias in aliases:
-                last_store.pop(alias, None)
-            if AliasAnalysis.ALL_MEM_LOCATIONS in aliases:
-                last_store = dict()
-            return last_store
-
-        # Compute the input variables
-        defs, types, uses, input_variables_dict = SSA.get_defs_uses_types_inputs(cfg)
-        
-        # Compute the alias analysis
-        alias_analysis_class = AliasAnalysis(cfg, input_variables_dict, debug=debug)
-        alias_analysis = alias_analysis_class.alias_analysis
-
-        # Get instructions from the CFG
-        cfg_instructions = cfg.get_cfg_instruction_list()
-        cfg_instructions_copy = copy.deepcopy(cfg_instructions)
-
-        # Remove dead stores from the CFG
-        last_store = dict()
-        for idx, instr in enumerate(cfg_instructions):
-            if 'op' in instr:
-                if instr['op'] == 'ptradd' and instr['dest'] in last_store:
-                    # For each ptradd, if the variable is being changed, remove the variable from the last store dictionary since it is being modified so the variable matching doesn't mean anything (here we aren't checking what the offset and default removal to be more conservative)
-                    last_store = remove_variable_and_aliases(alias_analysis, instr['dest'], last_store)
-                elif instr['op'] == 'load':
-                    # For each load, remove the variable from the last store dictionary since it is being used (here use the alias analysis to be more conservative)
-                    last_store = remove_variable_and_aliases(alias_analysis, instr['args'][0], last_store)
-                elif instr['op'] == 'store':
-                    # For each store check to see if the variable is being overwritten -- convervatively only remove if it is the same variable (no alias)
-                    if instr['args'][0] in last_store:
-                        if debug:
-                            logger.debug(f"Removing dead store: {instr}")
-                        cfg_instructions_copy.remove(instr)
-                    else:
-                        logger.debug(f"Adding Store: {instr}")
-                        last_store[instr['args'][0]] = idx
-
-        return cfg_instructions_copy
              
     @staticmethod
     def compute_alias_analysis(state_mapping: dict) -> dict:
@@ -208,8 +163,11 @@ class AliasAnalysis(object):
 
         if False: # debug:
             AliasAnalysis.print_inputs_outputs(inputs, outputs, reverse=reverse)
+        if final_outputs is None:
+            final_outputs = dict()
         return (inputs, outputs, final_outputs)
     
+    @staticmethod
     def print_inputs_outputs(inputs, outputs, reverse=False):
         """ Print the inputs and outputs for debugging """
         def print_helper(set_dict):
@@ -237,6 +195,54 @@ class AliasAnalysis(object):
                 logger.debug("\tout:\t")
                 print_helper(outputs[key])
 
+    @staticmethod
+    def dead_store_elimination(cfg: CFG, debug=False) -> list:
+        """ Perform Dead Store Elimination on the function's instructions and return the optimized instructions """
+        def remove_variable_and_aliases(alias_analysis, variable, last_store) -> dict:
+            aliases = alias_analysis.get(instr['args'][0], set())
+            last_store.pop(variable, None)
+            for alias in aliases:
+                last_store.pop(alias, None)
+            if AliasAnalysis.ALL_MEM_LOCATIONS in aliases:
+                last_store = dict()
+            return last_store
+
+        # Compute the input variables
+        defs, types, uses, input_variables_dict = SSA.get_defs_uses_types_inputs(cfg)
+        
+        # Compute the alias analysis
+        alias_analysis_class = AliasAnalysis(cfg, input_variables_dict, debug=debug)
+        alias_analysis = alias_analysis_class.alias_analysis
+
+        # Get instructions from the CFG
+        cfg_instructions = cfg.get_cfg_instruction_list()
+        cfg_instructions_copy = copy.deepcopy(cfg_instructions)
+
+        # Remove dead stores from the CFG
+        last_store = dict()
+        for idx, instr in enumerate(cfg_instructions):
+            if 'op' in instr:
+                if instr['op'] == 'ptradd' and instr['dest'] in last_store:
+                    # For each ptradd, if the variable is being changed, remove the variable from the last store dictionary since it is being modified so the variable matching doesn't mean anything (here we aren't checking what the offset and default removal to be more conservative)
+                    last_store = remove_variable_and_aliases(alias_analysis, instr['dest'], last_store)
+                elif instr['op'] == 'load':
+                    # For each load, remove the variable from the last store dictionary since it is being used (here use the alias analysis to be more conservative)
+                    last_store = remove_variable_and_aliases(alias_analysis, instr['args'][0], last_store)
+                elif instr['op'] == 'store':
+                    # For each store check to see if the variable is being overwritten -- convervatively only remove if it is the same variable (no alias)
+                    if instr['args'][0] in last_store:
+                        old_store_idx = last_store[instr['args'][0]]
+                        old_store_instr = cfg_instructions[old_store_idx]
+                        if debug:
+                            logger.debug(f"Removing dead store: {old_store_instr} due to {instr}")
+                        cfg_instructions_copy.remove(old_store_instr)
+                        last_store[instr['args'][0]] = idx
+                    else:
+                        logger.debug(f"Adding Store: {instr}")
+                        last_store[instr['args'][0]] = idx
+
+        return cfg_instructions_copy
+
 @click.command()
 @click.option('--debug', 'is_debug', is_flag=True, default=False, help='Debug Flag')
 def main(is_debug):
@@ -244,7 +250,11 @@ def main(is_debug):
     prog = json.load(sys.stdin)
     logger.info("Starting Alias Analysis for Dead Store Elimination")
     for fn in prog["functions"]:
-        cfg = CFG.create_cfg_from_function(fn['instrs'])
+        cfg = CFG.create_cfg_from_function(fn['instrs'], debug=is_debug)
+        if is_debug:
+            cfg.plot_cfg(CFG.DEFAULT_START_LABEL)
+            for label in cfg.cfg:
+                logger.debug(f"Block {label}: {cfg.cfg[label].instructions}")
         instr = AliasAnalysis.dead_store_elimination(cfg, debug=is_debug)
         fn['instrs'] = instr
     logger.info(f"Dead Store Elimination Complete")
