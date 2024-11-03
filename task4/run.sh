@@ -1,7 +1,7 @@
 rm licm.log
-cd ../..
+cd ..
 source venv.sh
-cd cs265-tasks/task4
+cd task4
 # cat ../benchmarks/mem/major-elm.bril | bril2json | python aliasing.py --debug | bril2txt > major-elm.bril
 # cat input.bril | bril2json | python aliasing.py --debug | bril2txt > two-sum.bril
 cat setup_input.bril | bril2json | python aliasing.py --debug | bril2txt > major-elm.bril

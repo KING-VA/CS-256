@@ -199,12 +199,14 @@ class AliasAnalysis(object):
     def dead_store_elimination(cfg: CFG, debug=False) -> list:
         """ Perform Dead Store Elimination on the function's instructions and return the optimized instructions """
         def remove_variable_and_aliases(alias_analysis, variable, last_store) -> dict:
+            logger.debug(f"Removing variable {variable} and its aliases from last store")
             aliases = alias_analysis.get(instr['args'][0], set())
-            last_store.pop(variable, None)
+            aliases.add(variable)
             for alias in aliases:
                 last_store.pop(alias, None)
             if AliasAnalysis.ALL_MEM_LOCATIONS in aliases:
                 last_store = dict()
+            logger.debug(f"Last Store: {last_store}")
             return last_store
 
         # Compute the input variables
@@ -216,10 +218,10 @@ class AliasAnalysis(object):
 
         # Get instructions from the CFG
         cfg_instructions = cfg.get_cfg_instruction_list()
-        cfg_instructions_copy = copy.deepcopy(cfg_instructions)
 
         # Remove dead stores from the CFG
         last_store = dict()
+        removed_instructions = []
         for idx, instr in enumerate(cfg_instructions):
             if 'op' in instr:
                 if instr['op'] == 'ptradd' and instr['dest'] in last_store:
@@ -233,15 +235,19 @@ class AliasAnalysis(object):
                     if instr['args'][0] in last_store:
                         old_store_idx = last_store[instr['args'][0]]
                         old_store_instr = cfg_instructions[old_store_idx]
+                        removed_instructions.append(old_store_idx)
+                        last_store[instr['args'][0]] = idx
                         if debug:
                             logger.debug(f"Removing dead store: {old_store_instr} due to {instr}")
-                        cfg_instructions_copy.remove(old_store_instr)
-                        last_store[instr['args'][0]] = idx
                     else:
                         logger.debug(f"Adding Store: {instr}")
                         last_store[instr['args'][0]] = idx
-
-        return cfg_instructions_copy
+                        
+        final_instructions = []
+        for ind, instr in enumerate(cfg_instructions):
+            if ind not in removed_instructions:
+                final_instructions.append(instr)
+        return final_instructions
 
 @click.command()
 @click.option('--debug', 'is_debug', is_flag=True, default=False, help='Debug Flag')

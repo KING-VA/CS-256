@@ -11,10 +11,10 @@ deno install --allow-all --force --global brilck.ts
 # install the python bril tools
 # requires flit
 # https://flit.pypa.io/en/stable/
-pip3 install --user flit
+pip3 install flit #--user flit
 (cd bril-txt && flit install --symlink --user)
 (cd brench && flit install --symlink --user)
 
 # install turnt for testing
 # https://github.com/cucapra/turnt
-pip3 install --user turnt
+pip3 install turnt #--user turnt

@@ -8,6 +8,10 @@ hypothesis_*
 __pycache__
 .vscode
 
+# Personal venv files
+.venv/
+venv.sh
+
 **/*.o
 .DS_Store
 
